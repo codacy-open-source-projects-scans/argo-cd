@@ -26,9 +26,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	errBasicAuthVerificationFailed = errors.New("basic auth verification failed")
-)
+var errBasicAuthVerificationFailed = errors.New("basic auth verification failed")
 
 type WebhookHandler struct {
 	namespace              string
@@ -514,7 +512,7 @@ func (h *WebhookHandler) shouldRefreshMatrixGenerator(gen *v1alpha1.MatrixGenera
 	relGenerators := generators.GetRelevantGenerators(requestedGenerator0, h.generators)
 	params := []map[string]interface{}{}
 	for _, g := range relGenerators {
-		p, err := g.GenerateParams(requestedGenerator0, appSet)
+		p, err := g.GenerateParams(requestedGenerator0, appSet, h.client)
 		if err != nil {
 			log.Error(err)
 			return false

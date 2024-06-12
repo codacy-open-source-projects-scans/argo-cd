@@ -69,12 +69,11 @@ func TestSCMProviderGetSecretRef(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			token, err := gen.getSecretRef(ctx, c.ref, c.namespace)
 			if c.hasError {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			}
 			assert.Equal(t, c.token, token)
-
 		})
 	}
 }
@@ -188,7 +187,7 @@ func TestSCMProviderGenerateParams(t *testing.T) {
 				},
 			}
 
-			got, err := scmGenerator.GenerateParams(&applicationSetInfo.Spec.Generators[0], &applicationSetInfo)
+			got, err := scmGenerator.GenerateParams(&applicationSetInfo.Spec.Generators[0], &applicationSetInfo, nil)
 
 			if testCaseCopy.expectedError != nil {
 				assert.EqualError(t, err, testCaseCopy.expectedError.Error())
@@ -196,7 +195,6 @@ func TestSCMProviderGenerateParams(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, testCaseCopy.expected, got)
 			}
-
 		})
 	}
 }
@@ -282,7 +280,7 @@ func TestAllowedSCMProvider(t *testing.T) {
 				},
 			}
 
-			_, err := scmGenerator.GenerateParams(&applicationSetInfo.Spec.Generators[0], &applicationSetInfo)
+			_, err := scmGenerator.GenerateParams(&applicationSetInfo.Spec.Generators[0], &applicationSetInfo, nil)
 
 			assert.Error(t, err, "Must return an error")
 			assert.ErrorAs(t, err, testCaseCopy.expectedError)
@@ -308,6 +306,6 @@ func TestSCMProviderDisabled_SCMGenerator(t *testing.T) {
 		},
 	}
 
-	_, err := generator.GenerateParams(&applicationSetInfo.Spec.Generators[0], &applicationSetInfo)
+	_, err := generator.GenerateParams(&applicationSetInfo.Spec.Generators[0], &applicationSetInfo, nil)
 	assert.ErrorIs(t, err, ErrSCMProvidersDisabled)
 }
