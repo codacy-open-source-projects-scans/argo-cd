@@ -25,6 +25,8 @@ import (
 	argoappsv1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 )
 
+//go:generate go run github.com/vektra/mockery/v2@v2.40.2 --name=Renderer
+
 var sprigFuncMap = sprig.GenericFuncMap() // a singleton for better performance
 
 func init() {
@@ -268,8 +270,8 @@ func (r *Render) RenderTemplateParams(tmpl *argoappsv1.Application, syncPolicy *
 	// b) there IS a syncPolicy, but preserveResourcesOnDeletion is set to false
 	// See TestRenderTemplateParamsFinalizers in util_test.go for test-based definition of behaviour
 	if (syncPolicy == nil || !syncPolicy.PreserveResourcesOnDeletion) &&
-		((*replacedTmpl).ObjectMeta.Finalizers == nil || len((*replacedTmpl).ObjectMeta.Finalizers) == 0) {
-		(*replacedTmpl).ObjectMeta.Finalizers = []string{"resources-finalizer.argocd.argoproj.io"}
+		(replacedTmpl.ObjectMeta.Finalizers == nil || len(replacedTmpl.ObjectMeta.Finalizers) == 0) {
+		replacedTmpl.ObjectMeta.Finalizers = []string{"resources-finalizer.argocd.argoproj.io"}
 	}
 
 	return replacedTmpl, nil

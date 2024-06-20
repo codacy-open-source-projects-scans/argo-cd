@@ -22,6 +22,7 @@ import (
 	"github.com/argoproj/argo-cd/v2/test/e2e/fixture"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	. "github.com/argoproj/argo-cd/v2/test/e2e/fixture/applicationsets"
 	"github.com/argoproj/argo-cd/v2/test/e2e/fixture/applicationsets/utils"
@@ -1432,6 +1433,7 @@ func TestSimpleGitDirectoryGeneratorGoTemplate(t *testing.T) {
 }
 
 func TestSimpleGitDirectoryGeneratorGPGEnabledUnsignedCommits(t *testing.T) {
+	fixture.SkipOnEnv(t, "GPG")
 	expectedErrorMessage := `error generating params from git: error getting directories from repo: error retrieving Git Directories: rpc error: code = Unknown desc = permission denied`
 	expectedConditionsParamsError := []v1alpha1.ApplicationSetCondition{
 		{
@@ -1531,6 +1533,7 @@ func TestSimpleGitDirectoryGeneratorGPGEnabledUnsignedCommits(t *testing.T) {
 }
 
 func TestSimpleGitDirectoryGeneratorGPGEnabledWithoutKnownKeys(t *testing.T) {
+	fixture.SkipOnEnv(t, "GPG")
 	expectedErrorMessage := `error generating params from git: error getting directories from repo: error retrieving Git Directories: rpc error: code = Unknown desc = permission denied`
 	expectedConditionsParamsError := []v1alpha1.ApplicationSetCondition{
 		{
@@ -1748,6 +1751,7 @@ func TestSimpleGitFilesGenerator(t *testing.T) {
 }
 
 func TestSimpleGitFilesGeneratorGPGEnabledUnsignedCommits(t *testing.T) {
+	fixture.SkipOnEnv(t, "GPG")
 	expectedErrorMessage := `error generating params from git: error retrieving Git files: rpc error: code = Unknown desc = permission denied`
 	expectedConditionsParamsError := []v1alpha1.ApplicationSetCondition{
 		{
@@ -1847,6 +1851,7 @@ func TestSimpleGitFilesGeneratorGPGEnabledUnsignedCommits(t *testing.T) {
 }
 
 func TestSimpleGitFilesGeneratorGPGEnabledWithoutKnownKeys(t *testing.T) {
+	fixture.SkipOnEnv(t, "GPG")
 	expectedErrorMessage := `error generating params from git: error retrieving Git files: rpc error: code = Unknown desc = permission denied`
 	expectedConditionsParamsError := []v1alpha1.ApplicationSetCondition{
 		{
@@ -2608,7 +2613,7 @@ func TestSCMProviderGeneratorSCMProviderNotAllowed(t *testing.T) {
 		And(func() {
 			// app should be listed
 			output, err := fixture.RunCli("appset", "get", "scm-provider-generator-scm-provider-not-allowed")
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Contains(t, output, "scm provider not allowed")
 		})
 }
@@ -3020,7 +3025,7 @@ func TestPullRequestGeneratorNotAllowedSCMProvider(t *testing.T) {
 		And(func() {
 			// app should be listed
 			output, err := fixture.RunCli("appset", "get", "pull-request-generator-not-allowed-scm")
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Contains(t, output, "scm provider not allowed")
 		})
 }
