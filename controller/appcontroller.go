@@ -628,6 +628,7 @@ func (ctrl *ApplicationController) getResourceTree(a *appv1.Application, managed
 			Message: fmt.Sprintf("Application has %d orphaned resources", len(orphanedNodes)),
 		}}
 	}
+	ctrl.metricsServer.SetOrphanedResourcesMetric(a, len(orphanedNodes))
 	a.Status.SetConditions(conditions, map[appv1.ApplicationConditionType]bool{appv1.ApplicationConditionOrphanedResourceWarning: true})
 	sort.Slice(orphanedNodes, func(i, j int) bool {
 		return orphanedNodes[i].ResourceRef.String() < orphanedNodes[j].ResourceRef.String()
@@ -759,7 +760,7 @@ func (ctrl *ApplicationController) hideSecretData(app *appv1.Application, compar
 		resDiff := res.Diff
 		if res.Kind == kube.SecretKind && res.Group == "" {
 			var err error
-			target, live, err = diff.HideSecretData(res.Target, res.Live)
+			target, live, err = diff.HideSecretData(res.Target, res.Live, ctrl.settingsMgr.GetSensitiveAnnotations())
 			if err != nil {
 				return nil, fmt.Errorf("error hiding secret data: %w", err)
 			}
@@ -1171,6 +1172,8 @@ func (ctrl *ApplicationController) finalizeApplicationDeletion(app *appv1.Applic
 	config := metrics.AddMetricsTransportWrapper(ctrl.metricsServer, app, clusterRESTConfig)
 
 	if app.CascadedDeletion() {
+		deletionApproved := app.IsDeletionConfirmed(app.DeletionTimestamp.Time)
+
 		logCtx.Infof("Deleting resources")
 		// ApplicationDestination points to a valid cluster, so we may clean up the live objects
 		objs := make([]*unstructured.Unstructured, 0)
@@ -1188,6 +1191,10 @@ func (ctrl *ApplicationController) finalizeApplicationDeletion(app *appv1.Applic
 
 			if ctrl.shouldBeDeleted(app, objsMap[k]) {
 				objs = append(objs, objsMap[k])
+				if res, ok := app.Status.FindResource(k); ok && res.RequiresDeletionConfirmation && !deletionApproved {
+					logCtx.Infof("Resource %v requires manual confirmation to delete", k)
+					return nil
+				}
 			}
 		}
 
@@ -1623,9 +1630,11 @@ func (ctrl *ApplicationController) processAppRefreshQueueItem() (processNext boo
 
 	project, hasErrors := ctrl.refreshAppConditions(app)
 	ts.AddCheckpoint("refresh_app_conditions_ms")
+	now := metav1.Now()
 	if hasErrors {
 		app.Status.Sync.Status = appv1.SyncStatusCodeUnknown
 		app.Status.Health.Status = health.HealthStatusUnknown
+		app.Status.Health.LastTransitionTime = &now
 		patchMs = ctrl.persistAppStatus(origApp, &app.Status)
 
 		if err := ctrl.cache.SetAppResourcesTree(app.InstanceName(ctrl.namespace), &appv1.ApplicationTree{}); err != nil {
@@ -1669,7 +1678,6 @@ func (ctrl *ApplicationController) processAppRefreshQueueItem() (processNext boo
 		revisions = append(revisions, revision)
 		sources = append(sources, app.Spec.GetSource())
 	}
-	now := metav1.Now()
 
 	compareResult, err := ctrl.appStateManager.CompareAppState(app, project, revisions, sources,
 		refreshType == appv1.RefreshTypeHard,

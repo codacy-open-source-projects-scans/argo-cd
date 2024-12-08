@@ -123,9 +123,9 @@ type ArgoCDSettings struct {
 	OIDCTLSInsecureSkipVerify bool `json:"oidcTLSInsecureSkipVerify"`
 	// AppsInAnyNamespaceEnabled indicates whether applications are allowed to be created in any namespace
 	AppsInAnyNamespaceEnabled bool `json:"appsInAnyNamespaceEnabled"`
-	// ExtensionConfig configurations related to ArgoCD proxy extensions. The value
-	// is a yaml string defined in extension.ExtensionConfigs struct.
-	ExtensionConfig string `json:"extensionConfig,omitempty"`
+	// ExtensionConfig configurations related to ArgoCD proxy extensions. The keys are the extension name.
+	// The value is a yaml string defined in extension.ExtensionConfigs struct.
+	ExtensionConfig map[string]string `json:"extensionConfig,omitempty"`
 	// ImpersonationEnabled indicates whether Application sync privileges can be decoupled from control plane
 	// privileges using impersonation
 	ImpersonationEnabled bool `json:"impersonationEnabled"`
@@ -461,6 +461,8 @@ const (
 	resourceInclusionsKey = "resource.inclusions"
 	// resourceIgnoreResourceUpdatesEnabledKey is the key to a boolean determining whether the resourceIgnoreUpdates feature is enabled
 	resourceIgnoreResourceUpdatesEnabledKey = "resource.ignoreResourceUpdatesEnabled"
+	// resourceSensitiveAnnotationsKey is the key to list of annotations to mask in secret resource
+	resourceSensitiveAnnotationsKey = "resource.sensitive.mask.annotations"
 	// resourceCustomLabelKey is the key to a custom label to show in node info, if present
 	resourceCustomLabelsKey = "resource.customLabels"
 	// resourceIncludeEventLabelKeys is the key to labels to be added onto Application k8s events if present on an Application or it's AppProject. Supports wildcard.
@@ -1337,6 +1339,10 @@ func (mgr *SettingsManager) GetSettings() (*ArgoCDSettings, error) {
 	if err != nil {
 		return nil, err
 	}
+	// SecretNamespaceLister lists all Secrets in the indexer for a given namespace.
+	// Objects returned by the lister must be treated as read-only.
+	// To allow us to modify the secrets, make a copy
+	secrets = util.SecretCopy(secrets)
 	var settings ArgoCDSettings
 	var errs []error
 	updateSettingsFromConfigMap(&settings, argoCDCM)
@@ -1537,8 +1543,19 @@ func updateSettingsFromConfigMap(settings *ArgoCDSettings, argoCDCM *apiv1.Confi
 	}
 	settings.TrackingMethod = argoCDCM.Data[settingsResourceTrackingMethodKey]
 	settings.OIDCTLSInsecureSkipVerify = argoCDCM.Data[oidcTLSInsecureSkipVerifyKey] == "true"
-	settings.ExtensionConfig = argoCDCM.Data[extensionConfig]
+	settings.ExtensionConfig = getExtensionConfigs(argoCDCM.Data)
 	settings.ImpersonationEnabled = argoCDCM.Data[impersonationEnabledKey] == "true"
+}
+
+func getExtensionConfigs(cmData map[string]string) map[string]string {
+	result := make(map[string]string)
+	for k, v := range cmData {
+		if strings.HasPrefix(k, extensionConfig) {
+			extName := strings.TrimPrefix(strings.TrimPrefix(k, extensionConfig), ".")
+			result[extName] = v
+		}
+	}
+	return result
 }
 
 // validateExternalURL ensures the external URL that is set on the configmap is valid
@@ -2328,6 +2345,28 @@ func (mgr *SettingsManager) GetExcludeEventLabelKeys() []string {
 		}
 	}
 	return labelKeys
+}
+
+func (mgr *SettingsManager) GetSensitiveAnnotations() map[string]bool {
+	annotationKeys := make(map[string]bool)
+
+	argoCDCM, err := mgr.getConfigMap()
+	if err != nil {
+		log.Error(fmt.Errorf("failed getting configmap: %w", err))
+		return annotationKeys
+	}
+
+	value, ok := argoCDCM.Data[resourceSensitiveAnnotationsKey]
+	if !ok || value == "" {
+		return annotationKeys
+	}
+
+	value = strings.ReplaceAll(value, " ", "")
+	keys := strings.Split(value, ",")
+	for _, k := range keys {
+		annotationKeys[k] = true
+	}
+	return annotationKeys
 }
 
 func (mgr *SettingsManager) GetMaxWebhookPayloadSize() int64 {

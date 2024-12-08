@@ -75,6 +75,52 @@ func TestGetRepositories(t *testing.T) {
 	assert.Equal(t, []Repository{{URL: "http://foo"}}, filter)
 }
 
+func TestGetExtensionConfigs(t *testing.T) {
+	type cases struct {
+		name        string
+		input       map[string]string
+		expected    map[string]string
+		expectedLen int
+	}
+
+	testCases := []cases{
+		{
+			name:        "will return main config successfully",
+			expectedLen: 1,
+			input: map[string]string{
+				extensionConfig: "test",
+			},
+			expected: map[string]string{
+				"": "test",
+			},
+		},
+		{
+			name:        "will return main and additional config successfully",
+			expectedLen: 2,
+			input: map[string]string{
+				extensionConfig: "main config",
+				fmt.Sprintf("%s.anotherExtension", extensionConfig): "another config",
+			},
+			expected: map[string]string{
+				"":                 "main config",
+				"anotherExtension": "another config",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			// When
+			output := getExtensionConfigs(tc.input)
+
+			// Then
+			assert.Len(t, output, tc.expectedLen)
+			assert.Equal(t, tc.expected, output)
+		})
+	}
+}
+
 func TestSaveRepositories(t *testing.T) {
 	kubeClient, settingsManager := fixtures(nil)
 	err := settingsManager.SaveRepositories([]Repository{{URL: "http://foo"}})
@@ -1773,4 +1819,38 @@ func TestIsImpersonationEnabled(t *testing.T) {
 		"when user enables the flag in argocd-cm config map, IsImpersonationEnabled() must return user set value")
 	require.NoError(t, err,
 		"when user enables the flag in argocd-cm config map, IsImpersonationEnabled() must not return any error")
+}
+
+func TestSettingsManager_GetHideSecretAnnotations(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		output map[string]bool
+	}{
+		{
+			name:   "Empty input",
+			input:  "",
+			output: map[string]bool{},
+		},
+		{
+			name:   "Comma separated data",
+			input:  "example.com/token-secret.value,token,key",
+			output: map[string]bool{"example.com/token-secret.value": true, "token": true, "key": true},
+		},
+		{
+			name:   "Comma separated data with space",
+			input:  "example.com/token-secret.value, token,    key",
+			output: map[string]bool{"example.com/token-secret.value": true, "token": true, "key": true},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, settingsManager := fixtures(map[string]string{
+				resourceSensitiveAnnotationsKey: tt.input,
+			})
+			keys := settingsManager.GetSensitiveAnnotations()
+			assert.Equal(t, len(tt.output), len(keys))
+			assert.Equal(t, tt.output, keys)
+		})
+	}
 }

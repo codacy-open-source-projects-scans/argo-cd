@@ -10,6 +10,7 @@ import (
 	goSync "sync"
 	"time"
 
+	synccommon "github.com/argoproj/gitops-engine/pkg/sync/common"
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/argoproj/gitops-engine/pkg/diff"
@@ -299,7 +300,8 @@ func (m *appStateManager) GetRepoObjs(app *v1alpha1.Application, sources []v1alp
 	logCtx = logCtx.WithField("time_ms", time.Since(ts.StartTime).Milliseconds())
 	logCtx.Info("GetRepoObjs stats")
 
-	// in case if annotation not exists, we should always execute selfheal if manifests changed
+	// If a revision in any of the sources cannot be updated,
+	// we should trigger self-healing whenever there are changes to the manifests.
 	if atLeastOneRevisionIsNotPossibleToBeUpdated {
 		revisionUpdated = true
 	}
@@ -435,6 +437,7 @@ func (m *appStateManager) CompareAppState(app *v1alpha1.Application, project *v1
 
 	// return unknown comparison result if basic comparison settings cannot be loaded
 	if err != nil {
+		now := metav1.Now()
 		if hasMultipleSources {
 			return &comparisonResult{
 				syncStatus: &v1alpha1.SyncStatus{
@@ -442,7 +445,7 @@ func (m *appStateManager) CompareAppState(app *v1alpha1.Application, project *v1
 					Status:     v1alpha1.SyncStatusCodeUnknown,
 					Revisions:  revisions,
 				},
-				healthStatus: &v1alpha1.HealthStatus{Status: health.HealthStatusUnknown},
+				healthStatus: &v1alpha1.HealthStatus{Status: health.HealthStatusUnknown, LastTransitionTime: &now},
 			}, nil
 		} else {
 			return &comparisonResult{
@@ -451,7 +454,7 @@ func (m *appStateManager) CompareAppState(app *v1alpha1.Application, project *v1
 					Status:     v1alpha1.SyncStatusCodeUnknown,
 					Revision:   revisions[0],
 				},
-				healthStatus: &v1alpha1.HealthStatus{Status: health.HealthStatusUnknown},
+				healthStatus: &v1alpha1.HealthStatus{Status: health.HealthStatusUnknown, LastTransitionTime: &now},
 			}, nil
 		}
 	}
@@ -746,6 +749,8 @@ func (m *appStateManager) CompareAppState(app *v1alpha1.Application, project *v1
 			Group:           gvk.Group,
 			Hook:            isHook(obj),
 			RequiresPruning: targetObj == nil && liveObj != nil && isSelfReferencedObj,
+			RequiresDeletionConfirmation: targetObj != nil && resourceutil.HasAnnotationOption(targetObj, synccommon.AnnotationSyncOptions, synccommon.SyncOptionDeleteRequireConfirm) ||
+				liveObj != nil && resourceutil.HasAnnotationOption(liveObj, synccommon.AnnotationSyncOptions, synccommon.SyncOptionDeleteRequireConfirm),
 		}
 		if targetObj != nil {
 			resState.SyncWave = int64(syncwaves.Wave(targetObj))
@@ -960,6 +965,10 @@ func specEqualsCompareTo(spec v1alpha1.ApplicationSpec, comparedTo v1alpha1.Comp
 	if comparedTo.Destination.Name == "" {
 		currentSpec.Destination.Name = ""
 	}
+
+	// Set IsServerInferred to false on both, because that field is not important for comparison.
+	comparedTo.Destination.SetIsServerInferred(false)
+	currentSpec.Destination.SetIsServerInferred(false)
 
 	return reflect.DeepEqual(comparedTo, currentSpec)
 }

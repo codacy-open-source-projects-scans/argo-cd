@@ -557,7 +557,7 @@ func (s *Server) GetManifests(ctx context.Context, q *application.ApplicationMan
 				return nil, fmt.Errorf("error unmarshaling manifest into unstructured: %w", err)
 			}
 			if obj.GetKind() == kube.SecretKind && obj.GroupVersionKind().Group == "" {
-				obj, _, err = diff.HideSecretData(obj, nil)
+				obj, _, err = diff.HideSecretData(obj, nil, s.settingsMgr.GetSensitiveAnnotations())
 				if err != nil {
 					return nil, fmt.Errorf("error hiding secret data: %w", err)
 				}
@@ -684,7 +684,7 @@ func (s *Server) GetManifestsWithFiles(stream application.ApplicationService_Get
 			return fmt.Errorf("error unmarshaling manifest into unstructured: %w", err)
 		}
 		if obj.GetKind() == kube.SecretKind && obj.GroupVersionKind().Group == "" {
-			obj, _, err = diff.HideSecretData(obj, nil)
+			obj, _, err = diff.HideSecretData(obj, nil, s.settingsMgr.GetSensitiveAnnotations())
 			if err != nil {
 				return fmt.Errorf("error hiding secret data: %w", err)
 			}
@@ -1229,6 +1229,18 @@ func (s *Server) validateAndNormalizeApp(ctx context.Context, app *appv1.Applica
 	if app.GetName() == "" {
 		return fmt.Errorf("resource name may not be empty")
 	}
+
+	// ensure sources names are unique
+	if app.Spec.HasMultipleSources() {
+		sourceNames := make(map[string]bool)
+		for _, source := range app.Spec.Sources {
+			if len(source.Name) > 0 && sourceNames[source.Name] {
+				return fmt.Errorf("application %s has duplicate source name: %s", app.Name, source.Name)
+			}
+			sourceNames[source.Name] = true
+		}
+	}
+
 	appNs := s.appNamespaceOrDefault(app.Namespace)
 	currApp, err := s.appclientset.ArgoprojV1alpha1().Applications(appNs).Get(ctx, app.Name, metav1.GetOptions{})
 	if err != nil {
@@ -1373,7 +1385,7 @@ func (s *Server) GetResource(ctx context.Context, q *application.ApplicationReso
 	if err != nil {
 		return nil, fmt.Errorf("error getting resource: %w", err)
 	}
-	obj, err = replaceSecretValues(obj)
+	obj, err = s.replaceSecretValues(obj)
 	if err != nil {
 		return nil, fmt.Errorf("error replacing secret values: %w", err)
 	}
@@ -1385,9 +1397,9 @@ func (s *Server) GetResource(ctx context.Context, q *application.ApplicationReso
 	return &application.ApplicationResourceResponse{Manifest: &manifest}, nil
 }
 
-func replaceSecretValues(obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+func (s *Server) replaceSecretValues(obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 	if obj.GetKind() == kube.SecretKind && obj.GroupVersionKind().Group == "" {
-		_, obj, err := diff.HideSecretData(nil, obj)
+		_, obj, err := diff.HideSecretData(nil, obj, s.settingsMgr.GetSensitiveAnnotations())
 		if err != nil {
 			return nil, err
 		}
@@ -1424,7 +1436,7 @@ func (s *Server) PatchResource(ctx context.Context, q *application.ApplicationRe
 	if manifest == nil {
 		return nil, fmt.Errorf("failed to patch resource: manifest was nil")
 	}
-	manifest, err = replaceSecretValues(manifest)
+	manifest, err = s.replaceSecretValues(manifest)
 	if err != nil {
 		return nil, fmt.Errorf("error replacing secret values: %w", err)
 	}
@@ -2184,7 +2196,7 @@ func (s *Server) ListResourceLinks(ctx context.Context, req *application.Applica
 		return nil, fmt.Errorf("failed to read application deep links from configmap: %w", err)
 	}
 
-	obj, err = replaceSecretValues(obj)
+	obj, err = s.replaceSecretValues(obj)
 	if err != nil {
 		return nil, fmt.Errorf("error replacing secret values: %w", err)
 	}
@@ -2217,7 +2229,7 @@ func getAmbiguousRevision(app *appv1.Application, syncReq *application.Applicati
 	ambiguousRevision := ""
 	if app.Spec.HasMultipleSources() {
 		for i, pos := range syncReq.SourcePositions {
-			if pos == int64(sourceIndex) {
+			if pos == int64(sourceIndex+1) {
 				ambiguousRevision = syncReq.Revisions[i]
 			}
 		}

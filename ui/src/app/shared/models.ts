@@ -210,6 +210,8 @@ export interface ApplicationSource {
     directory?: ApplicationSourceDirectory;
 
     ref?: string;
+
+    name?: string;
 }
 
 export interface ApplicationSourceHelm {
@@ -354,6 +356,7 @@ export interface ResourceStatus {
     createdAt?: models.Time;
     hook?: boolean;
     requiresPruning?: boolean;
+    requiresDeletionConfirmation?: boolean;
     syncWave?: number;
     orphaned?: boolean;
 }
@@ -985,3 +988,5 @@ export interface UserMessages {
     duration?: number;
     animation?: string;
 }
+
+export const AppDeletionConfirmedAnnotation = 'argocd.argoproj.io/deletion-approved';

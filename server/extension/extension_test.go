@@ -28,9 +28,7 @@ func TestValidateHeaders(t *testing.T) {
 	t.Run("will build RequestResources successfully", func(t *testing.T) {
 		// given
 		r, err := http.NewRequest(http.MethodGet, "http://null", nil)
-		if err != nil {
-			t.Fatalf("error initializing request: %s", err)
-		}
+		require.NoError(t, err, "error initializing request")
 		r.Header.Add(extension.HeaderArgoCDApplicationName, "namespace:app-name")
 		r.Header.Add(extension.HeaderArgoCDProjectName, "project-name")
 
@@ -47,9 +45,7 @@ func TestValidateHeaders(t *testing.T) {
 	t.Run("will return error if application is malformatted", func(t *testing.T) {
 		// given
 		r, err := http.NewRequest(http.MethodGet, "http://null", nil)
-		if err != nil {
-			t.Fatalf("error initializing request: %s", err)
-		}
+		require.NoError(t, err, "error initializing request")
 		r.Header.Add(extension.HeaderArgoCDApplicationName, "no-namespace")
 
 		// when
@@ -62,9 +58,7 @@ func TestValidateHeaders(t *testing.T) {
 	t.Run("will return error if application header is missing", func(t *testing.T) {
 		// given
 		r, err := http.NewRequest(http.MethodGet, "http://null", nil)
-		if err != nil {
-			t.Fatalf("error initializing request: %s", err)
-		}
+		require.NoError(t, err, "error initializing request")
 		r.Header.Add(extension.HeaderArgoCDProjectName, "project-name")
 
 		// when
@@ -77,9 +71,7 @@ func TestValidateHeaders(t *testing.T) {
 	t.Run("will return error if project header is missing", func(t *testing.T) {
 		// given
 		r, err := http.NewRequest(http.MethodGet, "http://null", nil)
-		if err != nil {
-			t.Fatalf("error initializing request: %s", err)
-		}
+		require.NoError(t, err, "error initializing request")
 		r.Header.Add(extension.HeaderArgoCDApplicationName, "namespace:app-name")
 
 		// when
@@ -92,9 +84,7 @@ func TestValidateHeaders(t *testing.T) {
 	t.Run("will return error if invalid namespace", func(t *testing.T) {
 		// given
 		r, err := http.NewRequest(http.MethodGet, "http://null", nil)
-		if err != nil {
-			t.Fatalf("error initializing request: %s", err)
-		}
+		require.NoError(t, err, "error initializing request")
 		r.Header.Add(extension.HeaderArgoCDApplicationName, "bad%namespace:app-name")
 		r.Header.Add(extension.HeaderArgoCDProjectName, "project-name")
 
@@ -108,9 +98,7 @@ func TestValidateHeaders(t *testing.T) {
 	t.Run("will return error if invalid app name", func(t *testing.T) {
 		// given
 		r, err := http.NewRequest(http.MethodGet, "http://null", nil)
-		if err != nil {
-			t.Fatalf("error initializing request: %s", err)
-		}
+		require.NoError(t, err, "error initializing request")
 		r.Header.Add(extension.HeaderArgoCDApplicationName, "namespace:bad@app")
 		r.Header.Add(extension.HeaderArgoCDProjectName, "project-name")
 
@@ -124,9 +112,7 @@ func TestValidateHeaders(t *testing.T) {
 	t.Run("will return error if invalid project name", func(t *testing.T) {
 		// given
 		r, err := http.NewRequest(http.MethodGet, "http://null", nil)
-		if err != nil {
-			t.Fatalf("error initializing request: %s", err)
-		}
+		require.NoError(t, err, "error initializing request")
 		r.Header.Add(extension.HeaderArgoCDApplicationName, "namespace:app")
 		r.Header.Add(extension.HeaderArgoCDProjectName, "bad^project")
 
@@ -162,12 +148,16 @@ func TestRegisterExtensions(t *testing.T) {
 		t.Parallel()
 		f := setup()
 		settings := &settings.ArgoCDSettings{
-			ExtensionConfig: getExtensionConfigString(),
+			ExtensionConfig: map[string]string{
+				"":            getExtensionConfigString(),
+				"another-ext": getSingleExtensionConfigString(),
+			},
 		}
 		f.settingsGetterMock.On("Get", mock.Anything).Return(settings, nil)
 		expectedProxyRegistries := []string{
 			"external-backend",
 			"some-backend",
+			"another-ext",
 		}
 
 		// when
@@ -223,7 +213,9 @@ func TestRegisterExtensions(t *testing.T) {
 				t.Parallel()
 				f := setup()
 				settings := &settings.ArgoCDSettings{
-					ExtensionConfig: tc.configYaml,
+					ExtensionConfig: map[string]string{
+						"": tc.configYaml,
+					},
 				}
 				f.settingsGetterMock.On("Get", mock.Anything).Return(settings, nil)
 
@@ -362,8 +354,10 @@ func TestCallExtension(t *testing.T) {
 		secrets["extension.auth.header2"] = "Bearer another-bearer-token"
 
 		settings := &settings.ArgoCDSettings{
-			ExtensionConfig: configYaml,
-			Secrets:         secrets,
+			ExtensionConfig: map[string]string{
+				"": configYaml,
+			},
+			Secrets: secrets,
 		}
 		f.settingsGetterMock.On("Get", mock.Anything).Return(settings, nil)
 	}
@@ -371,9 +365,7 @@ func TestCallExtension(t *testing.T) {
 	startTestServer := func(t *testing.T, f *fixture) *httptest.Server {
 		t.Helper()
 		err := f.manager.RegisterExtensions()
-		if err != nil {
-			t.Fatalf("error starting test server: %s", err)
-		}
+		require.NoError(t, err, "error starting test server")
 		return httptest.NewServer(f.mux)
 	}
 
@@ -388,9 +380,7 @@ func TestCallExtension(t *testing.T) {
 	newExtensionRequest := func(t *testing.T, method, url string) *http.Request {
 		t.Helper()
 		r, err := http.NewRequest(method, url, nil)
-		if err != nil {
-			t.Fatalf("error initializing request: %s", err)
-		}
+		require.NoError(t, err, "error initializing request")
 		r.Header.Add(extension.HeaderArgoCDApplicationName, "namespace:app-name")
 		r.Header.Add(extension.HeaderArgoCDProjectName, defaultProjectName)
 		return r
@@ -793,6 +783,17 @@ extensions:
   backend:
     services:
     - url: http://localhost:7777
+`
+}
+
+func getSingleExtensionConfigString() string {
+	return `
+connectionTimeout: 10s
+keepAlive: 11s
+idleConnectionTimeout: 12s
+maxIdleConnections: 30
+services:
+- url: http://localhost:7777
 `
 }
 
