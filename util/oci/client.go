@@ -44,6 +44,12 @@ var (
 	indexLock  = sync.NewKeyLock()
 )
 
+// maxOCIManifestSize bounds how many bytes we read when decoding an OCI manifest
+// returned by a registry. This matches oras-go's MaxMetadataBytes default (4 MiB)
+// and protects the repo-server from unbounded memory consumption if a registry
+// returns an excessively large manifest.
+const maxOCIManifestSize = 4 * 1024 * 1024 // 4 MiB
+
 const (
 	helmOCIConfigType = "application/vnd.cncf.helm.config.v1+json"
 	helmOCILayerType  = "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
@@ -349,6 +355,10 @@ func (c *nativeOCIClient) CleanCache(revision string) error {
 	if err != nil {
 		return fmt.Errorf("error cleaning oci path for revision %s: %w", revision, err)
 	}
+	// ORAS reopens this archive for each blob during extraction.
+	c.repoLock.Lock(cachePath)
+	defer c.repoLock.Unlock(cachePath)
+
 	return os.RemoveAll(cachePath)
 }
 
@@ -366,11 +376,7 @@ func (c *nativeOCIClient) DigestMetadata(ctx context.Context, digest string) (*i
 }
 
 func (c *nativeOCIClient) digestMetadata(ctx context.Context, digest string) (*imagev1.Manifest, error) {
-	path, err := c.getCachedPath(digest)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching oci metadata path for digest %s: %w", digest, err)
-	}
-	return getOCIManifestFromCache(ctx, path, digest)
+	return getOCIManifest(ctx, digest, c.repo)
 }
 
 func (c *nativeOCIClient) ResolveRevision(ctx context.Context, revision string, noCache bool) (string, error) {
@@ -399,7 +405,7 @@ func (c *nativeOCIClient) resolveRevision(ctx context.Context, revision string, 
 		}
 
 		// Look to see if revision is a semver constraint
-		version, err := versions.MaxVersion(revision, tags)
+		version, err := versions.MaxVersion(revision, tags, "")
 		if err != nil {
 			return "", fmt.Errorf("no version for constraints: %w", err)
 		}
@@ -690,16 +696,20 @@ func (s *compressedLayerExtracterStore) Push(ctx context.Context, desc imagev1.D
 func getOCIManifest(ctx context.Context, digest string, repo oras.ReadOnlyTarget) (*imagev1.Manifest, error) {
 	desc, err := repo.Resolve(ctx, digest)
 	if err != nil {
-		return nil, fmt.Errorf("error resolving oci repo from digest, %w", err)
+		return nil, fmt.Errorf("error resolving oci manifest for digest %s: %w", digest, err)
 	}
 
 	rc, err := repo.Fetch(ctx, desc)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching oci manifest for digest %s: %w", digest, err)
 	}
+	defer rc.Close()
 
 	manifest := imagev1.Manifest{}
-	decoder := json.NewDecoder(rc)
+	// Limit how much we read while decoding the manifest to protect against a
+	// malicious or misbehaving registry returning an arbitrarily large response,
+	// which would otherwise be buffered into memory and could exhaust the repo-server.
+	decoder := json.NewDecoder(io.LimitReader(rc, maxOCIManifestSize))
 	if err = decoder.Decode(&manifest); err != nil {
 		return nil, fmt.Errorf("error decoding oci manifest for digest %s: %w", digest, err)
 	}
